@@ -33,15 +33,23 @@ client.on("ready", () => {
   console.log("Bot is online!");
 });
 
-// Initialize Google Generative AI with error handling
-let genAI, model;
-try {
-  genAI = new GoogleGenerativeAI(process.env.GOOGLE_GEMINI_API_KEY);
-  model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-} catch (error) {
-  console.error("Failed to initialize Google Generative AI:", error);
+// Read Gemini API keys from environment (comma-separated)
+const geminiApiKeys = (process.env.GOOGLE_GEMINI_API_KEYS || process.env.GOOGLE_GEMINI_API_KEY || '').split(',').map(k => k.trim()).filter(Boolean);
+if (geminiApiKeys.length === 0) {
+  console.error('No Gemini API keys provided. Set GOOGLE_GEMINI_API_KEYS or GOOGLE_GEMINI_API_KEY.');
   process.exit(1);
 }
+
+// Store current key index and model
+let currentGeminiKeyIndex = 0;
+let genAI: any;
+let model: ReturnType<typeof GoogleGenerativeAI.prototype.getGenerativeModel>;
+
+// Function to initialize model with a given key
+const initGeminiModel = (apiKey: string) => {
+  genAI = new GoogleGenerativeAI(apiKey);
+  model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+};
 
 // Get the channel IDs from the environment variable
 const discordChannelIds = process.env.DISCORD_SERVER_CHANNEL_ID?.split(",").map(id => id.trim()) ?? [];
@@ -138,31 +146,49 @@ client.on("messageCreate", async (message: typeof Message) => {
       conversationHistory.length = 0; // Clear the array
     }
 
-    // API call with timeout and retry logic
-    const apiCallWithTimeout = async (timeoutMs: number = 30000) => {
-      const timeout = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('API call timeout')), timeoutMs)
-      );
-
-      const apiCall = async () => {
-        const chat = model.startChat({
-          history: conversationHistory,
-          generationConfig: {
-            maxOutputTokens: 1000,
-            temperature: 0.7,
-          },
-        });
-
-        const prompt = `
-        ${SYSTEM_PROMPT}
-        Respond to: ${cleanContent}
-        `;
-        const result = await chat.sendMessage(prompt);
-        const response = await result.response;
-        return response.text();
-      };
-
-      return Promise.race([apiCall(), timeout]);
+    // Helper to try API call and switch keys on quota/invalid errors
+    const apiCall = async () => {
+      let attempts = 0;
+      let lastError;
+      while (attempts < geminiApiKeys.length) {
+        try {
+          const chat = model.startChat({
+            history: conversationHistory,
+            generationConfig: {
+              maxOutputTokens: 1000,
+              temperature: 0.7,
+            },
+          });
+          const prompt = `
+          ${SYSTEM_PROMPT}
+          Respond to: ${cleanContent}
+          `;
+          const result = await chat.sendMessage(prompt);
+          const response = await result.response;
+          return response.text();
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          // If quota or invalid key, try next key
+          if (msg.includes('quota') || msg.includes('limit') || msg.includes('API key') || msg.includes('invalid') || msg.includes('permission')) {
+            attempts++;
+            currentGeminiKeyIndex = (currentGeminiKeyIndex + 1) % geminiApiKeys.length;
+            console.warn(`Switching to next Gemini API key (#${currentGeminiKeyIndex + 1}) due to error: ${msg}`);
+            try {
+              await checkGeminiApiKey(geminiApiKeys[currentGeminiKeyIndex]);
+              initGeminiModel(geminiApiKeys[currentGeminiKeyIndex]);
+            } catch (checkErr) {
+              // If the next key is also invalid, continue to next
+              continue;
+            }
+          } else {
+            // For other errors, throw immediately
+            throw error;
+          }
+          lastError = error;
+        }
+      }
+      // If all keys fail
+      throw lastError || new Error('All Gemini API keys failed.');
     };
 
     // Attempt API call with retry
@@ -172,7 +198,7 @@ client.on("messageCreate", async (message: typeof Message) => {
 
     while (retryCount <= maxRetries) {
       try {
-        text = await apiCallWithTimeout();
+        text = await apiCall();
         break;
       } catch (error) {
         retryCount++;
@@ -201,14 +227,38 @@ client.on("messageCreate", async (message: typeof Message) => {
     console.error("Error generating response:", error);
 
     // Specific error handling
+    // Define random error messages for each condition
+    const timeoutMessages = [
+      "Bruh.",
+    ];
+    const quotaMessages = [
+      "I reached my quota, you kept asking me stupid questions.",
+      "I'm out of credits, you could've stopped talking to me.",
+      "Bruh, good job. I'm all out",
+      "Angelo Lacson, out.",
+      "Bruh, you're asking me too many questions."
+    ];
+    const safetyMessages = [
+      "I'm not answering that question.",
+    ];
+    const genericMessages = [
+      "I'm not gonna give you a proper answer.",
+      "Quit asking, you're messing me up.",
+      "I'm gonna go for a cigarette, don't talk to me.",
+      "Man.",
+      "Shut up."
+    ];
+    // Helper to pick a random message
+    const pickRandom = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
+
     if ((error as Error).message.includes('timeout')) {
-      await message.reply("⏰ Request timed out. Please try again.");
+      await message.reply(pickRandom(timeoutMessages));
     } else if ((error as Error).message.includes('quota') || (error as Error).message.includes('limit')) {
-      await message.reply("📊 API quota exceeded. Please try again later.");
+      await message.reply(pickRandom(quotaMessages));
     } else if ((error as Error).message.includes('safety')) {
-      await message.reply("🛡️ Response blocked for safety reasons.");
+      await message.reply(pickRandom(safetyMessages));
     } else {
-      await message.reply("❌ Sorry, I encountered an error while generating a response.");
+      await message.reply(pickRandom(genericMessages));
     }
   }
 });
@@ -235,5 +285,50 @@ setInterval(() => {
     }
   }
 }, 60000); // Run every minute
+
+// Utility to check Gemini API key validity and quota
+const checkGeminiApiKey = async (apiKey: string) => {
+  if (!apiKey) {
+    throw new Error("API key is not set");
+  }
+  const API_VERSION = "v1";
+  const url = `https://generativelanguage.googleapis.com/${API_VERSION}/models?key=${apiKey}`;
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+    });
+    const data = await res.json();
+    if (data.error) {
+      throw new Error(data.error.message);
+    }
+    return true;
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Gemini API key check failed: ${errorMsg}`);
+  }
+};
+
+(async () => {
+  // Check all Gemini API keys and pick the first valid one
+  let foundValid = false;
+  for (let i = 0; i < geminiApiKeys.length; i++) {
+    try {
+      await checkGeminiApiKey(geminiApiKeys[i]);
+      currentGeminiKeyIndex = i;
+      initGeminiModel(geminiApiKeys[i]);
+      foundValid = true;
+      console.log(`Gemini API key #${i + 1} is valid and will be used.`);
+      break;
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      console.warn(`Gemini API key #${i + 1} is invalid: ${errorMsg}`);
+    }
+  }
+  if (!foundValid) {
+    console.error('No valid Gemini API keys found. Exiting.');
+    process.exit(1);
+  }
+})();
 
 client.login(process.env.DISCORD_BOT_TOKEN);
