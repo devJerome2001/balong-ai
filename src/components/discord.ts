@@ -16,7 +16,7 @@ import { config } from "../config";
 let model = initializeModel(config.geminiKey);
 let currentGeminiKeyIndex = 0;
 
-const discordChannelIds = process.env.DISCORD_SERVER_CHANNEL_ID?.split(",").map(id => id.trim()) ?? [];
+const discordChannelIds = config.discordChannelId.split(",").map(id => id.trim()) ?? [];
 
 /**
  * Initializes and starts the Discord bot.
@@ -242,5 +242,5 @@ export function startDiscordBot() {
     }
   })();
 
-  client.login(process.env.DISCORD_BOT_TOKEN);
+  client.login(config.discordToken);
 }
