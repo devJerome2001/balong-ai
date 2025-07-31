@@ -1,5 +1,5 @@
 import { Model } from "./type";
-import { config } from "@/config";
+import { config } from "../config";
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 /**

@@ -1,5 +1,5 @@
 import { Client, IntentsBitField, Message } from "discord.js";
-import { ConversationHistory } from "@/components/type";
+import { ConversationHistory } from "./type";
 import {
   CONVERSATION_HISTORY_LIMIT,
   SYSTEM_PROMPT,
@@ -9,9 +9,9 @@ import {
   USER_COOLDOWNS,
   containsBlockedContent,
   pickRandom
-} from "@/components/utils";
-import { initializeModel, geminiKeys, checkGeminiApiKey as geminiCheckApiKey } from "@/components/gemini";
-import { config } from "@/config";
+} from "./utils";
+import { initializeModel, geminiKeys, checkGeminiApiKey as geminiCheckApiKey } from "./gemini";
+import { config } from "../config";
 
 let model = initializeModel(config.geminiKey);
 let currentGeminiKeyIndex = 0;
