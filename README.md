@@ -59,13 +59,18 @@ DISCORD_SERVER_CHANNEL_ID=channel_id_1,channel_id_2
 ```
 balong-ai/
 ├── src/
-│   ├── constant.ts         # Constants (e.g., system prompt, history limit)
-│   ├── index.ts            # Main bot logic
-│   └── type.ts             # Type definitions
-├── package.json            # Project metadata and scripts
-├── tsconfig.json           # TypeScript configuration
-└── README.md               # Project documentation
+│   ├── index.ts              # Entrypoint: starts the Discord bot
+│   ├── config.ts             # Loads environment variables and config
+│   └── components/
+│       ├── discord.ts        # All Discord integration logic (event handlers, bot startup)
+│       ├── gemini.ts         # Gemini model logic (init, key management, API key check)
+│       ├── utils.ts          # Constants and utility/helper functions
+│       └── type.ts           # Type definitions
+├── package.json              # Project metadata and scripts
+├── tsconfig.json             # TypeScript configuration
+└── README.md                 # Project documentation
 ```
+- **Note:** All Discord integration logic is now in `src/components/discord.ts` for modularity and maintainability. The `src/index.ts` file is only responsible for starting the bot.
 
 ## Dependencies
 - [discord.js](https://discord.js.org/): Discord API library
@@ -79,6 +84,3 @@ Contributions are welcome! Please open issues or submit pull requests for improv
 
 ## License
 This project is licensed under the ISC License. See the [LICENSE](LICENSE) file for details.
-
-## Contact
-For questions or support, please contact the project maintainer.
